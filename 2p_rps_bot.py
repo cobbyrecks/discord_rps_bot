@@ -6,7 +6,6 @@ import discord
 from dotenv import load_dotenv
 from discord.ext import commands
 
-
 # Load environment variables from .env file
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -85,7 +84,7 @@ async def show_leaderboard(ctx):
     leaderboard_message = "🏆 **Leaderboard** 🏆\n"
     for user_id, stats in leaderboard.items():
         user = bot.get_user(user_id)  # Use cached user info
-        if user is None:
+        if user is not None:
             user = await bot.fetch_user(user_id)  # Fetch if not in cache
         leaderboard_message += f"{user.name}: {stats['wins']} Wins, {stats['losses']} Losses, {stats['ties']} Ties\n"
 
@@ -118,7 +117,7 @@ async def rps(ctx, opponent: discord.Member = None):
     rps_game = ["rock", "paper", "scissors"]
     emoji_map = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
 
-    # Check if user is already in a game
+    # Check if a user is already in a game
     if ctx.author.id in active_games["singleplayer"] or ctx.author.id in active_games["multiplayer"]:
         await ctx.send("You are already in an ongoing game! Finish it first.")
         return
@@ -132,46 +131,49 @@ async def rps(ctx, opponent: discord.Member = None):
             await ctx.send(f"{opponent.name} is already in a game! Try again later.")
             return
 
-        await ctx.send(f"{opponent.mention}, {ctx.author.name} has challenged you to Rock, Paper, Scissors! Type your choice.")
+        # Announce the challenge and prompt both users to DM their choice to the bot
+        await ctx.send(
+            f"{opponent.mention}, {ctx.author.name} has challenged you to Rock, Paper, Scissors! Please check your DM!")
         active_games["multiplayer"][ctx.author.id] = opponent.id
         active_games["multiplayer"][opponent.id] = ctx.author.id
 
+        # Send DMs to both players
+        await ctx.author.send(f"Please reply with your choice\n"
+                              "Rock 🪨, Paper 📄, or Scissors ✂️ (You can also use 'r', 'p', or 's')")
+        await opponent.send(f"Please reply with your choice\n"
+                            "Rock 🪨, Paper 📄, or Scissors ✂️ (You can also use 'r', 'p', or 's')")
+
+        # Collect choices via DM
         def check(msg):
-            return msg.author in [ctx.author, opponent] and msg.content.lower() in rps_game + list("rps")
+            return msg.author in [ctx.author, opponent] and isinstance(msg.channel, discord.DMChannel) and (
+                        msg.content.lower() or get_full_choice(msg.content) in rps_game)
 
         try:
             user_msg = await bot.wait_for("message", check=check, timeout=30)
-        except asyncio.TimeoutError:
-            await ctx.send(f"⏰ {ctx.author.name} took too long to respond! Game canceled.")
-            active_games["multiplayer"].pop(ctx.author.id, None)
-            active_games["multiplayer"].pop(opponent.id, None)
-            return
-
-        try:
             opponent_msg = await bot.wait_for("message", check=check, timeout=30)
         except asyncio.TimeoutError:
-            await ctx.send(f"⏰ {opponent.name} took too long to respond! {ctx.author.name} wins by default!")
-            update_leaderboard(ctx.author.id, opponent.id)
-            update_game_history(ctx.author.id, "Win", opponent.id)
-            update_game_history(opponent.id, "Loss", ctx.author.id)
+            await ctx.send("⏰ One of the players took too long to respond! Game canceled.")
             active_games["multiplayer"].pop(ctx.author.id, None)
             active_games["multiplayer"].pop(opponent.id, None)
             return
 
+        # Get and mask the choices
         user_choice = get_full_choice(user_msg.content.lower())
         opponent_choice = get_full_choice(opponent_msg.content.lower())
 
+        # Reveal the choices and announce the result
         await ctx.send(f"{ctx.author.name}'s choice: {user_choice} {emoji_map[user_choice]}\n"
                        f"{opponent.name}'s choice: {opponent_choice} {emoji_map[opponent_choice]}")
 
+        # Determine the game result
         if user_choice == opponent_choice:
             result = "It's a tie!"
             update_leaderboard(ctx.author.id, opponent.id, tie=True)
             update_game_history(ctx.author.id, "Tie", opponent.id)
             update_game_history(opponent.id, "Tie", ctx.author.id)
         elif (user_choice == "rock" and opponent_choice == "scissors") or \
-             (user_choice == "scissors" and opponent_choice == "paper") or \
-             (user_choice == "paper" and opponent_choice == "rock"):
+                (user_choice == "scissors" and opponent_choice == "paper") or \
+                (user_choice == "paper" and opponent_choice == "rock"):
             result = f"{ctx.author.name} wins!"
             update_leaderboard(ctx.author.id, opponent.id)
             update_game_history(ctx.author.id, "Win", opponent.id)
@@ -192,7 +194,8 @@ async def rps(ctx, opponent: discord.Member = None):
         await ctx.send("Rock 🪨, Paper 📄, or Scissors ✂️ (You can also use 'r', 'p', or 's')")
 
         def check(msg):
-            return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.lower() in rps_game + list("rps")
+            return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.lower() in rps_game + list(
+                "rps")
 
         active_games["singleplayer"][ctx.author.id] = True
 
@@ -211,8 +214,8 @@ async def rps(ctx, opponent: discord.Member = None):
             update_leaderboard(ctx.author.id, None, tie=True)
             update_game_history(ctx.author.id, "Tie")
         elif (user_choice == "rock" and bot_choice == "scissors") or \
-             (user_choice == "scissors" and bot_choice == "paper") or \
-             (user_choice == "paper" and bot_choice == "rock"):
+                (user_choice == "scissors" and bot_choice == "paper") or \
+                (user_choice == "paper" and bot_choice == "rock"):
             result = "You win!"
             update_leaderboard(ctx.author.id)
             update_game_history(ctx.author.id, "Win")
