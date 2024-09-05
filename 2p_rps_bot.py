@@ -85,7 +85,7 @@ async def show_leaderboard(ctx):
     leaderboard_message = "🏆 **Leaderboard** 🏆\n"
     for user_id, stats in leaderboard.items():
         user = bot.get_user(user_id)  # Use cached user info
-        if user is None:
+        if user is not None:
             user = await bot.fetch_user(user_id)  # Fetch if not in cache
         leaderboard_message += f"{user.name}: {stats['wins']} Wins, {stats['losses']} Losses, {stats['ties']} Ties\n"
 
@@ -133,37 +133,48 @@ async def rps(ctx, opponent: discord.Member = None):
             return
 
         await ctx.send(f"{opponent.mention}, {ctx.author.name} has challenged you to Rock, Paper, Scissors! Type your choice.")
+
+        # Track active multiplayer games
         active_games["multiplayer"][ctx.author.id] = opponent.id
         active_games["multiplayer"][opponent.id] = ctx.author.id
 
-        def check(msg):
-            return msg.author in [ctx.author, opponent] and msg.content.lower() in rps_game + list("rps")
+        player_choices = {}
 
-        try:
-            user_msg = await bot.wait_for("message", check=check, timeout=30)
-        except asyncio.TimeoutError:
-            await ctx.send(f"⏰ {ctx.author.name} took too long to respond! Game canceled.")
+        async def get_player_choice(player):
+            def check(msg):
+                return msg.author == player and msg.content.lower() in rps_game + list("rps")
+            
+            try:
+                # Wait for player input
+                player_msg = await bot.wait_for("message", check=check, timeout=30)
+                choice = get_full_choice(player_msg.content.lower())
+                return choice
+            except asyncio.TimeoutError:
+                await ctx.send(f"⏰ {player.name} took too long to respond! Game canceled.")
+                return None
+
+        # Get player choices asynchronously
+        player_1_choice = asyncio.create_task(get_player_choice(ctx.author))
+        player_2_choice = asyncio.create_task(get_player_choice(opponent))
+
+        # Mask inputs while waiting for both
+        await ctx.send(f"{ctx.author.name}'s choice: ***\n{opponent.name}'s choice: ***")
+
+        # Gather both players' choices
+        user_choice = await player_1_choice
+        opponent_choice = await player_2_choice
+
+        # Check if any player timed out
+        if user_choice is None or opponent_choice is None:
             active_games["multiplayer"].pop(ctx.author.id, None)
             active_games["multiplayer"].pop(opponent.id, None)
             return
 
-        try:
-            opponent_msg = await bot.wait_for("message", check=check, timeout=30)
-        except asyncio.TimeoutError:
-            await ctx.send(f"⏰ {opponent.name} took too long to respond! {ctx.author.name} wins by default!")
-            update_leaderboard(ctx.author.id, opponent.id)
-            update_game_history(ctx.author.id, "Win", opponent.id)
-            update_game_history(opponent.id, "Loss", ctx.author.id)
-            active_games["multiplayer"].pop(ctx.author.id, None)
-            active_games["multiplayer"].pop(opponent.id, None)
-            return
-
-        user_choice = get_full_choice(user_msg.content.lower())
-        opponent_choice = get_full_choice(opponent_msg.content.lower())
-
+        # Reveal choices after both inputs are received
         await ctx.send(f"{ctx.author.name}'s choice: {user_choice} {emoji_map[user_choice]}\n"
                        f"{opponent.name}'s choice: {opponent_choice} {emoji_map[opponent_choice]}")
 
+        # Determine the winner
         if user_choice == opponent_choice:
             result = "It's a tie!"
             update_leaderboard(ctx.author.id, opponent.id, tie=True)
@@ -184,47 +195,9 @@ async def rps(ctx, opponent: discord.Member = None):
 
         await ctx.send(result)
 
+        # Remove players from active games
         active_games["multiplayer"].pop(ctx.author.id, None)
         active_games["multiplayer"].pop(opponent.id, None)
-
-    # Single-player game logic
-    else:
-        await ctx.send("Rock 🪨, Paper 📄, or Scissors ✂️ (You can also use 'r', 'p', or 's')")
-
-        def check(msg):
-            return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.lower() in rps_game + list("rps")
-
-        active_games["singleplayer"][ctx.author.id] = True
-
-        try:
-            user_msg = await bot.wait_for("message", check=check, timeout=30)
-        except asyncio.TimeoutError:
-            await ctx.send("⏰ You took too long to respond! Please try again.")
-            active_games["singleplayer"].pop(ctx.author.id, None)
-            return
-
-        user_choice = get_full_choice(user_msg.content.lower())
-        bot_choice = random.choice(rps_game)
-
-        if user_choice == bot_choice:
-            result = "It's a tie!"
-            update_leaderboard(ctx.author.id, None, tie=True)
-            update_game_history(ctx.author.id, "Tie")
-        elif (user_choice == "rock" and bot_choice == "scissors") or \
-             (user_choice == "scissors" and bot_choice == "paper") or \
-             (user_choice == "paper" and bot_choice == "rock"):
-            result = "You win!"
-            update_leaderboard(ctx.author.id)
-            update_game_history(ctx.author.id, "Win")
-        else:
-            result = "I win!"
-            update_leaderboard(None, ctx.author.id)
-            update_game_history(ctx.author.id, "Loss")
-
-        await ctx.send(f"Your choice: {user_choice} {emoji_map[user_choice]}\n"
-                       f"My choice: {bot_choice} {emoji_map[bot_choice]}\n{result}")
-
-        active_games["singleplayer"].pop(ctx.author.id, None)
 
 
 # Global error handler to catch unexpected errors
