@@ -6,6 +6,7 @@ import discord
 from dotenv import load_dotenv
 from discord.ext import commands
 
+
 # Load environment variables from .env file
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -83,10 +84,17 @@ async def show_leaderboard(ctx):
 
     leaderboard_message = "🏆 **Leaderboard** 🏆\n"
     for user_id, stats in leaderboard.items():
-        user = bot.get_user(user_id)  # Use cached user info
-        if user is None:
-            user = await bot.fetch_user(user_id)  # Fetch if not in cache
-        leaderboard_message += f"{user.name}: {stats['wins']} Wins, {stats['losses']} Losses, {stats['ties']} Ties\n"
+        try:
+            user = bot.get_user(user_id)  # Use cached user info
+            if user is None:
+                user = await bot.fetch_user(user_id)  # Fetch if not in cache
+
+            leaderboard_message += f"{user.name}: {stats['wins']} Wins, {stats['losses']} Losses, {stats['ties']} Ties\n"
+
+        except Exception as e:
+            # Handle a case where user_id is invalid or user could not be fetched
+            leaderboard_message += f"Unknown User (ID: {user_id}): {stats['wins']} Wins, {stats['losses']} Losses, {stats['ties']} Ties\n"
+            print(f"Error fetching user {user_id}: {e}")
 
     await ctx.send(leaderboard_message)
 
@@ -189,26 +197,6 @@ async def rps(ctx, opponent: discord.Member = None):
         active_games["multiplayer"].pop(ctx.author.id, None)
         active_games["multiplayer"].pop(opponent.id, None)
 
-    # # Single-player game logic
-    # else:
-    #     await ctx.send("Rock 🪨, Paper 📄, or Scissors ✂️ (You can also use 'r', 'p', or 's')")
-    #
-    #     def check(msg):
-    #         return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.lower() in rps_game + list(
-    #             "rps")
-    #
-    #     active_games["singleplayer"][ctx.author.id] = True
-    #
-    #     try:
-    #         user_msg = await bot.wait_for("message", check=check, timeout=30)
-    #     except asyncio.TimeoutError:
-    #         await ctx.send("⏰ You took too long to respond! Please try again.")
-    #         active_games["singleplayer"].pop(ctx.author.id, None)
-    #         return
-    #
-    #     user_choice = get_full_choice(user_msg.content.lower())
-    #     bot_choice = random.choice(rps_game)
-
     else:
         # Single-player logic against the bot
         active_games["singleplayer"][ctx.author.id] = True
@@ -220,8 +208,7 @@ async def rps(ctx, opponent: discord.Member = None):
 
             # Define a check function to validate the user's response
             def check(msg):
-                return msg.author == ctx.author and isinstance(msg.channel,
-                                                               discord.DMChannel) and msg.content.lower() in rps_game + list("rps")
+                return msg.author == ctx.author and isinstance(msg.channel, discord.DMChannel) and msg.content.lower() in rps_game + list("rps")
 
             # Wait for the user's response via DM
             user_msg = await bot.wait_for("message", check=check, timeout=30)
