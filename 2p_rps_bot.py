@@ -130,7 +130,7 @@ async def rps(ctx, opponent: discord.Member = None):
         await ctx.send("You are already in an ongoing game! Finish it first.")
         return
 
-    # Single-player logic against the bot
+    # Single-player logic against the RPS bot
     if not opponent or opponent.id == bot.user.id:
         active_games["singleplayer"][ctx.author.id] = True
 
